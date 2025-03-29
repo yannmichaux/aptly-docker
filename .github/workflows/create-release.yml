@@ -20,6 +20,11 @@ jobs:
         with:
           node-version: 18
 
+      - name: Configure git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
       - name: Bump package.json
         run: |
           npm --allow-same-version version "${{ inputs.version }}" -m "[CI SKIP] - Bump version to ${{ inputs.version }}"
