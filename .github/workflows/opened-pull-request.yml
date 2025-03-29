@@ -10,6 +10,7 @@ concurrency:
 
 jobs:
   check-label:
+    name: Check Pull Request Label
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -23,12 +24,14 @@ jobs:
           labels: "MAJOR, MINOR, PATCH"
 
   generate-version:
+    name: Generate Version
     needs: check-label
     permissions:
       contents: read
     uses: ./.github/workflows/generate-version.yml
 
   comment-on-pr:
+    name: Comment on Pull Request
     needs: generate-version
     runs-on: ubuntu-latest
     permissions:
