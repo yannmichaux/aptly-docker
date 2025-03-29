@@ -1,6 +1,7 @@
 # Aptly Docker — Secure & Flexible APT Repository Server
 
 [![Docker Hub](https://img.shields.io/docker/pulls/yannmichaux/aptly?style=flat-square)](https://hub.docker.com/r/yannmichaux/aptly)
+[![GitHub Release](https://img.shields.io/github/v/release/yannmichaux/aptly?style=flat-square)](https://github.com/yannmichaux/aptly/releases)
 
 This repository provides a fully featured, production-ready Docker image to serve a private APT repository using [Aptly](https://www.aptly.info/), with:
 
