@@ -25,7 +25,7 @@ jobs:
       - name: Get PR Label
         id: getlabel
         run: |
-          LABEL=$(jq -r '.[0].name' <<< "${{ toJSON(github.event.pull_request.labels) }}")
+          LABEL=$(echo '${{ toJSON(github.event.pull_request.labels) }}' | jq -r '.[0].name')
           echo "label=${LABEL}" >> $GITHUB_OUTPUT
 
       - name: Bump version in package.json (no git tag)
