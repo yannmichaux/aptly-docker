@@ -5,7 +5,7 @@ REPO_NAME="${REPO_NAME:-default}"
 REPO_COMPONENTS="${REPO_COMPONENTS:-main}"
 REPO_DISTRIBUTION="${REPO_DISTRIBUTION:-noble}"
 REPO_ARCH="${REPO_ARCH:-amd64}"
-GPG_KEY_PATH="${GPG_KEY_PATH:-/secrets/private.pgp}"
+GPG_KEY_PATH="${GPG_KEY_PATH:-/secrets/private.asc}"
 CONFIG_PATH="/config/aptly.conf"
 
 # -- Config Aptly

@@ -108,7 +108,7 @@ MAIL_ATTACHMENT=true
 
 ## 🔏 GPG Signing
 
-- Mount a key at `/secrets/private.pgp` to use your own
+- Mount a key at `/secrets/private.asc` to use your own
 - Or let the container generate one automatically
 - Public key is exposed at:
   ```
