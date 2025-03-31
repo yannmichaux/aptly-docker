@@ -5,7 +5,7 @@ REPO_NAME="${REPO_NAME:-default}"
 REPO_COMPONENTS="${REPO_COMPONENTS:-main}"
 REPO_DISTRIBUTION="${REPO_DISTRIBUTION:-noble}"
 REPO_ARCH="${REPO_ARCH:-amd64}"
-GPG_KEY_PATH="${GPG_KEY_PATH:-/secrets/private.pgp}"
+GPG_KEY_PATH="${GPG_KEY_PATH:-/secrets/private.asc}"
 CONFIG_PATH="/config/aptly.conf"
 
 # -- Config Aptly
@@ -54,6 +54,9 @@ Expire-Date: 0
 EOF
     gpg --batch --gen-key /tmp/gen-key
     rm -f /tmp/gen-key
+    echo "💾 Exporting generated private key to $GPG_KEY_PATH"
+    mkdir -p "$(dirname "$GPG_KEY_PATH")"
+    gpg --batch --yes --armor --export-secret-keys "$GPG_KEY_ID" > "$GPG_KEY_PATH"
   fi
 fi
 
