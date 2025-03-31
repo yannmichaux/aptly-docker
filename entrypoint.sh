@@ -54,15 +54,18 @@ Expire-Date: 0
 EOF
     gpg --batch --gen-key /tmp/gen-key
     rm -f /tmp/gen-key
-    echo "💾 Exporting generated private key to $GPG_KEY_PATH"
-    mkdir -p "$(dirname "$GPG_KEY_PATH")"
-    gpg --batch --yes --armor --export-secret-keys "$GPG_KEY_ID" > "$GPG_KEY_PATH"
   fi
 fi
 
 GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ { print $10; exit }')
 echo "$GPG_KEY_ID:6:" | gpg --import-ownertrust
 echo "🔑 Using GPG key ID: $GPG_KEY_ID"
+
+if [[ ! -f "$GPG_KEY_PATH" ]]; then
+  echo "💾 Exporting generated private key to $GPG_KEY_PATH"
+  mkdir -p "$(dirname "$GPG_KEY_PATH")"
+  gpg --batch --yes --armor --export-secret-keys "$GPG_KEY_ID" > "$GPG_KEY_PATH"
+fi
 
 # -- Create /incoming/<component> dirs
 IFS=',' read -ra COMPONENTS <<< "$REPO_COMPONENTS"
