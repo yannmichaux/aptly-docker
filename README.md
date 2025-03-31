@@ -6,7 +6,7 @@
 This repository provides a fully featured, production-ready Docker image to serve a private APT repository using [Aptly](https://www.aptly.info/), with:
 
 - 🔐 GPG signing (auto or custom key)
-- 📂 Multi-component support (e.g., `stable`, `testing`, `public`)
+- 📂 Multi-component support (e.g., `main`, `stable`, etc.)
 - 🧾 Modern `.sources` output for clients
 - 📤 Upload `.deb` packages via `PUT`
 - 📦 Automatic publication with cron
@@ -27,12 +27,29 @@ services:
     ports:
       - "8080:80"
     environment:
+      # Repo name
       REPO_NAME: name
+      # Comma separated components, eg: main,stable,foo,bar
       REPO_COMPONENTS: main
+      # Target distro, such as bookworm, noble
       REPO_DISTRIBUTION: noble
+      # Arch for repo, can be all, amd64, etc.
       REPO_ARCH: amd64
+      # (Optional) Cron notation for automatic repository update
       CRON_UPDATE_COMPONENTS: "*/15 * * * *"
-      NOTIFY_SENDMAIL: "false"
+      # (Optional) Send packages.json to a URL using curl POST
+      NOTIFY_WEBHOOK_URL: https://<host>/foo/bar
+      # (Optional) Send mail using env vars after an update
+      NOTIFY_SENDMAIL: true
+      SMTP_HOST: smtp.domain.com
+      SMTP_PORT: 587
+      SMTP_USER: username
+      SMTP_PASS: password
+      MAIL_FROM: aptly@domain.com
+      MAIL_TO: you@domain.com
+      MAIL_SUBJECT: "APT Repo Updated"
+      ## Send packages.json file as attachment on mail
+      MAIL_ATTACHMENT: true
     volumes:
       - aptly-data:/var/lib/aptly
       - /path/to/config:/config
