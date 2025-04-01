@@ -1,4 +1,4 @@
-FROM debian:bookworm
+FROM debian:bookworm-slim
 
 LABEL maintainer="Yann Michaux <yann.michaux1@gmail.com>"
 LABEL description="Custom Docker image for Aptly with GPG and NGINX support"
@@ -25,14 +25,21 @@ RUN mkdir -p $APTLY_ROOT/public /etc/aptly
 RUN rm -f /etc/nginx/conf.d/default.conf /etc/nginx/sites-enabled/default
 
 # Copy entrypoint + nginx fallback
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
-COPY nginx.conf.template /config/nginx.conf.template
+# Copy config files
+RUN mkdir -p /templates
+COPY nginx.conf /templates/nginx.conf
 
-# Volumes : données, clé GPG, config
+# Add update wrapper script into PATH
+RUN echo -e '#!/bin/sh\nexec /entrypoint.sh update "$@"' > /usr/local/bin/update && chmod +x /usr/local/bin/update
+
+# Volumes : data, GPG key, config
 VOLUME ["/var/lib/aptly", "/secrets", "/config", "/incoming"]
 
 EXPOSE 80
 
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/docker-entrypoint.sh"]
+
+CMD ["start"]
