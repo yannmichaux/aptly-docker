@@ -86,21 +86,30 @@ EOF
     aptly repo create -distribution="$REPO_DISTRIBUTION" -component="$FIRST_COMPONENT" "$REPO_NAME"
   fi
 
-  # -- Initial publish if not yet done (via snapshot for switch compatibility)
+  # -- Initial publish if not yet done (via snapshots for switch compatibility)
   if ! aptly publish list | grep -q "$REPO_DISTRIBUTION"; then
-    FIRST_COMPONENT=$(echo "$REPO_COMPONENTS" | cut -d',' -f1)
-    SNAP_NAME="${FIRST_COMPONENT}_initial"
+    echo "📸 Creating initial empty snapshots for each component..."
 
-    echo "📸 Creating initial snapshot: $SNAP_NAME"
-    aptly snapshot create "$SNAP_NAME" from repo "$REPO_NAME"
+    COMPONENT_LIST=()
+    SNAPSHOT_LIST=()
 
-    echo "🚀 Publishing snapshot $SNAP_NAME for $REPO_DISTRIBUTION"
+    for COMPONENT in "${COMPONENTS[@]}"; do
+      SNAP_NAME="${COMPONENT}_initial"
+      echo "📸 Creating snapshot $SNAP_NAME"
+      aptly snapshot create "$SNAP_NAME" from repo "$REPO_NAME"
+      COMPONENT_LIST+=("$COMPONENT")
+      SNAPSHOT_LIST+=("$SNAP_NAME")
+    done
+
+    COMPONENTS_JOINED=$(IFS=, ; echo "${COMPONENT_LIST[*]}")
+
+    echo "🚀 Publishing initial snapshots with components: $COMPONENTS_JOINED"
     aptly publish snapshot \
-      -component="$FIRST_COMPONENT" \
+      -component="$COMPONENTS_JOINED" \
       -distribution="$REPO_DISTRIBUTION" \
       -architectures="$REPO_ARCH" \
       -gpg-key="$GPG_KEY_ID" \
-      "$SNAP_NAME"
+      "${SNAPSHOT_LIST[@]}"
   fi
 
   # -- Cron
