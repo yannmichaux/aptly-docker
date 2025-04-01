@@ -86,10 +86,21 @@ EOF
     aptly repo create -distribution="$REPO_DISTRIBUTION" -component="$FIRST_COMPONENT" "$REPO_NAME"
   fi
 
-  # -- Initial publish if not yet done
+  # -- Initial publish if not yet done (via snapshot for switch compatibility)
   if ! aptly publish list | grep -q "$REPO_DISTRIBUTION"; then
-    echo "🚀 Publishing $REPO_NAME for $REPO_DISTRIBUTION"
-    aptly publish repo -architectures="$REPO_ARCH" -gpg-key="$GPG_KEY_ID" "$REPO_NAME"
+    FIRST_COMPONENT=$(echo "$REPO_COMPONENTS" | cut -d',' -f1)
+    SNAP_NAME="${FIRST_COMPONENT}_initial"
+
+    echo "📸 Creating initial snapshot: $SNAP_NAME"
+    aptly snapshot create "$SNAP_NAME" from repo "$REPO_NAME"
+
+    echo "🚀 Publishing snapshot $SNAP_NAME for $REPO_DISTRIBUTION"
+    aptly publish snapshot \
+      -component="$FIRST_COMPONENT" \
+      -distribution="$REPO_DISTRIBUTION" \
+      -architectures="$REPO_ARCH" \
+      -gpg-key="$GPG_KEY_ID" \
+      "$SNAP_NAME"
   fi
 
   # -- Cron
