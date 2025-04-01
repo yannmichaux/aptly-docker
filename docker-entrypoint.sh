@@ -108,16 +108,21 @@ EOF
   if [[ ! -f "$CONFIG_FILE" ]]; then
     echo "⚠️ Missing nginx.conf in /config, generating from template..."
     mkdir -p /config
-    COMPONENTS_REGEX=$(echo "$REPO_COMPONENTS" | sed 's/,/|/g')
-    sed "s|__COMPONENTS_REGEX__|$COMPONENTS_REGEX|g" "$TEMPLATE_FILE" > "$CONFIG_FILE"
 
+    COMPONENTS_REGEX=$(echo "$REPO_COMPONENTS" | sed 's/,/|/g')
+    ESCAPED_REGEX=$(echo "$COMPONENTS_REGEX" | sed 's/|/\\|/g')
+    sed "s|__COMPONENTS_REGEX__|$ESCAPED_REGEX|g" "$TEMPLATE_FILE" > "$CONFIG_FILE"
+
+    # Inject auth block if htpasswd present
     if [[ -s "/config/htpasswd" ]]; then
       sed -i '/__AUTH_BLOCK__/r'<(echo -e "        auth_basic \"Restricted\";\n        auth_basic_user_file /config/htpasswd;") "$CONFIG_FILE"
     fi
 
+    # Clean placeholder
     sed -i '/__AUTH_BLOCK__/d' "$CONFIG_FILE"
   fi
 
+  # -- Symlink config to NGINX expected path
   ln -sf "$CONFIG_FILE" "$NGINX_LINK"
   echo "🌐 Linked nginx.conf to $NGINX_LINK"
 
