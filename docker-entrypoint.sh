@@ -209,8 +209,7 @@ update() {
     echo "📦 Processing component: $COMPONENT"
     find "$INCOMING_DIR" -name '*.deb' -type f | while read -r pkg; do
       echo "➕ Adding $pkg to repo"
-      aptly repo add "$REPO_NAME" "$pkg"
-      rm -f "$pkg"
+      aptly repo add -remove-files "$REPO_NAME" "$pkg"
     done
 
     SNAP_NAME="${COMPONENT}_${NOW}"
