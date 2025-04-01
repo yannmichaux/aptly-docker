@@ -12,14 +12,13 @@ This repository provides a fully featured, production-ready Docker image to serv
 - 📦 Automatic publication with cron
 - 📊 Webhook + email notifications
 - 🔒 Optional Basic Auth for upload routes
+- 🧩 Manual updates via `docker exec aptly update [component]`
 
 ---
 
 ## 🚀 Quick Start (docker-compose)
 
 ```yaml
-version: "3.8"
-
 services:
   aptly:
     container_name: aptly-server
@@ -86,6 +85,26 @@ curl -X PUT --data-binary "@my-package.deb" http://<host>/incoming/stable/my-pac
   - A webhook POST via `NOTIFY_WEBHOOK_URL`
   - An email if `NOTIFY_SENDMAIL=true`
 
+You can also **manually trigger an update** from the host using:
+
+```bash
+docker exec aptly-server update
+```
+
+Or to update a specific component:
+
+```bash
+docker exec aptly-server update stable
+```
+
+To update multiple components (comma separated):
+
+```bash
+docker exec aptly-server update stable,testing
+```
+
+> If a component passed doesn't exist, the update will be aborted with a helpful message listing available components.
+
 ---
 
 ## 📬 Email (optional)
@@ -139,10 +158,10 @@ Run interactively:
 docker run --rm -it yannmichaux/aptly /bin/bash
 ```
 
-Manually trigger an update:
+Manually trigger an update (full control):
 
 ```bash
-docker exec aptly-server /entrypoint.sh update
+docker exec aptly-server update
 ```
 
 ---
