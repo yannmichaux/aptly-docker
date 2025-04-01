@@ -1,4 +1,4 @@
-FROM debian:bookworm
+FROM debian:bookworm-slim
 
 LABEL maintainer="Yann Michaux <yann.michaux1@gmail.com>"
 LABEL description="Custom Docker image for Aptly with GPG and NGINX support"
