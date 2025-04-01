@@ -33,7 +33,7 @@ RUN mkdir -p /templates
 COPY nginx.conf /templates/nginx.conf
 
 # Add update wrapper script into PATH
-RUN echo -e '#!/bin/sh\nexec /entrypoint.sh update "$@"' > /usr/local/bin/update && chmod +x /usr/local/bin/update
+RUN echo '#!/bin/bash\nexec /docker-entrypoint.sh update "$@"' > /usr/local/bin/update && chmod +x /usr/local/bin/update
 
 # Volumes : data, GPG key, config
 VOLUME ["/var/lib/aptly", "/secrets", "/config", "/incoming"]
