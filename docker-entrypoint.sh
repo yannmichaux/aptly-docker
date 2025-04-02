@@ -18,7 +18,7 @@ IFS=',' read -ra COMPONENTS <<< "$REPO_COMPONENTS"
 # Function to add packages to the corresponding component repository
 add_packages_to_repo() {
   local COMPONENT="$1"
-  local REPO_ID="${REPO_NAME}_${COMPONENT}"
+  local REPO_ID="${REPO_NAME}-${COMPONENT}"
   local INCOMING_DIR="/incoming/$COMPONENT"
 
   if ! find "$INCOMING_DIR" -type f -name '*.deb' | grep -q .; then
@@ -37,7 +37,7 @@ add_packages_to_repo() {
 create_and_publish_snapshot() {
   local COMPONENT="$1"
   local NOW="$2"
-  local REPO_ID="${REPO_NAME}_${COMPONENT}"
+  local REPO_ID="${REPO_NAME}-${COMPONENT}"
   local SNAP_NAME="${REPO_ID}_${NOW}"
 
   echo "📸 Creating snapshot: $SNAP_NAME"
@@ -46,16 +46,13 @@ create_and_publish_snapshot() {
   if aptly publish list | grep -q "$REPO_DISTRIBUTION.*$COMPONENT"; then
     echo "🔁 Switching publish for $COMPONENT"
     aptly publish switch -component="$COMPONENT" -gpg-key="$GPG_KEY_ID" "$REPO_DISTRIBUTION" "$SNAP_NAME"
-  else
-    echo "🚀 Publishing $COMPONENT"
-    aptly publish snapshot -component="$COMPONENT" -distribution="$REPO_DISTRIBUTION" -architectures="$REPO_ARCH" -gpg-key="$GPG_KEY_ID" "$SNAP_NAME"
   fi
 }
 
 # Function to generate a JSON summary of packages for a component
 generate_packages_json() {
   local COMPONENT="$1"
-  local REPO_ID="${REPO_NAME}_${COMPONENT}"
+  local REPO_ID="${REPO_NAME}-${COMPONENT}"
   local PACKAGES_FILE="/var/lib/aptly/${REPO_ID}_packages.json"
 
   aptly repo show -json -with-packages "$REPO_ID" | jq '
@@ -123,7 +120,7 @@ EOF
 # Function to cleanup old snapshots and database
 cleanup_snapshots() {
   local COMPONENT="$1"
-  local REPO_ID="${REPO_NAME}_${COMPONENT}"
+  local REPO_ID="${REPO_NAME}-${COMPONENT}"
   local SNAPSHOTS=$(aptly snapshot list -raw | grep "^$REPO_ID" | sort -r)
   local SNAP_COUNT=$(echo "$SNAPSHOTS" | wc -l)
 
@@ -173,7 +170,7 @@ EOF
   # -- GPG
   if [[ -f "$GPG_KEY_PATH" ]]; then
     echo "🔐 Importing GPG key from $GPG_KEY_PATH..."
-    gpg --batch --import "$GPG_KEY_PATH" || true
+    gpg --batch --import "$GPG_KEY_PATH" &>/dev/null || true
   else
     echo "⚠️ No GPG key provided — checking for existing key..."
     if ! gpg --list-secret-keys | grep -q sec; then
@@ -206,23 +203,32 @@ EOF
 
   # -- /incoming dirs
   for COMPONENT in "${COMPONENTS[@]}"; do
-    REPO_ID="${REPO_NAME}_${COMPONENT}"
+    REPO_ID="${REPO_NAME}-${COMPONENT}"
+    SNAP_NAME="${REPO_ID}_initial"
+
     mkdir -p "/incoming/$COMPONENT"
 
     if ! aptly repo list -raw | grep -q "^$REPO_ID$"; then
       echo "📦 Creating repo $REPO_ID"
-      aptly repo create -distribution="$REPO_DISTRIBUTION" -component="$COMPONENT" "$REPO_ID"
-    fi
-
-    # -- Initial publish if not yet done (via snapshots for switch compatibility)
-    if ! aptly publish list | grep -q "$REPO_DISTRIBUTION.*$COMPONENT"; then
-      SNAP_NAME="${COMPONENT}_initial"
+      aptly repo create -distribution="$REPO_DISTRIBUTION" -component="$COMPONENT" "$REPO_ID" &>/dev/null
       echo "📸 Creating initial snapshot $SNAP_NAME for $COMPONENT"
-      aptly snapshot create "$SNAP_NAME" from repo "$REPO_ID"
-      echo "🚀 Publishing $COMPONENT"
-      aptly publish snapshot -component="$COMPONENT" -distribution="$REPO_DISTRIBUTION" -architectures="$REPO_ARCH" -gpg-key="$GPG_KEY_ID" "$SNAP_NAME"
+      aptly snapshot create "$SNAP_NAME" from repo "$REPO_ID" &>/dev/null
     fi
   done
+
+  # -- Initial publish of all snapshots
+  if ! aptly publish list -raw | grep -q "$REPO_DISTRIBUTION"; then
+    SNAPSHOTS=$(aptly snapshot list -raw | grep "_initial$" | sort -r)
+    COMPONENTS=$(echo "${COMPONENTS[@]}" | tr ' ' ',')
+
+    echo "🚀 Publishing initial snapshosts"
+    aptly publish snapshot \
+      -component="$COMPONENTS" \
+      -distribution="$REPO_DISTRIBUTION" \
+      -architectures="$REPO_ARCH" \
+      -gpg-key="$GPG_KEY_ID" \
+      $SNAPSHOTS  &>/dev/null
+  fi
 
   # -- Cron
   if [[ -n "${CRON_UPDATE_COMPONENTS:-}" ]]; then
