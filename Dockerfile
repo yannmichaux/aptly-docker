@@ -7,12 +7,14 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV APTLY_ROOT=/var/lib/aptly
 
 # Install dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gnupg curl wget ca-certificates nginx rsync xz-utils jq cron && \
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    gnupg curl wget ca-certificates nginx rsync xz-utils jq cron mutt && \
     rm -rf /var/lib/apt/lists/*
 
 # Add Aptly official repo & key
-RUN mkdir -p /etc/apt/keyrings && chmod 755 /etc/apt/keyrings && \
+RUN mkdir -p /etc/apt/keyrings && \
+    chmod 755 /etc/apt/keyrings && \
     wget -O /etc/apt/keyrings/aptly.asc https://www.aptly.info/pubkey.txt && \
     echo "deb [signed-by=/etc/apt/keyrings/aptly.asc] http://repo.aptly.info/release bookworm main" > /etc/apt/sources.list.d/aptly.list && \
     apt-get update && apt-get install -y aptly && \

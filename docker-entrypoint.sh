@@ -1,18 +1,148 @@
 #!/bin/bash
 set -e
 
+# Define default values for environment variables
+REPO_ARCH="${REPO_ARCH:-amd64}"
 REPO_NAME="${REPO_NAME:-default}"
 REPO_COMPONENTS="${REPO_COMPONENTS:-main}"
 REPO_DISTRIBUTION="${REPO_DISTRIBUTION:-noble}"
-REPO_ARCH="${REPO_ARCH:-amd64}"
 GPG_KEY_PATH="${GPG_KEY_PATH:-/secrets/private.asc}"
+REPO_MAX_SNAPSHOTS="${REPO_MAX_SNAPSHOTS:-15}"
+
 CONFIG_PATH="/config/aptly.conf"
-
 LOCKFILE="/tmp/aptly-update.lock"
-PACKAGES_FILE="/var/lib/aptly/packages.json"
 
+# Split components list by comma
 IFS=',' read -ra COMPONENTS <<< "$REPO_COMPONENTS"
 
+# Function to add packages to the corresponding component repository
+add_packages_to_repo() {
+  local COMPONENT="$1"
+  local REPO_ID="${REPO_NAME}_${COMPONENT}"
+  local INCOMING_DIR="/incoming/$COMPONENT"
+
+  if ! find "$INCOMING_DIR" -type f -name '*.deb' | grep -q .; then
+    echo "ℹ️ No .deb found in $INCOMING_DIR, skipping $COMPONENT"
+    return 1
+  fi
+
+  echo "📦 Processing component: $COMPONENT"
+  find "$INCOMING_DIR" -name '*.deb' -type f | while read -r pkg; do
+    echo "➕ Adding $pkg to repo"
+    aptly repo add -remove-files "$REPO_ID" "$pkg"
+  done
+}
+
+# Function to create snapshot and publish or switch if already exists
+create_and_publish_snapshot() {
+  local COMPONENT="$1"
+  local NOW="$2"
+  local REPO_ID="${REPO_NAME}_${COMPONENT}"
+  local SNAP_NAME="${REPO_ID}_${NOW}"
+
+  echo "📸 Creating snapshot: $SNAP_NAME"
+  aptly snapshot create "$SNAP_NAME" from repo "$REPO_ID"
+
+  if aptly publish list | grep -q "$REPO_DISTRIBUTION.*$COMPONENT"; then
+    echo "🔁 Switching publish for $COMPONENT"
+    aptly publish switch -component="$COMPONENT" -gpg-key="$GPG_KEY_ID" "$REPO_DISTRIBUTION" "$SNAP_NAME"
+  else
+    echo "🚀 Publishing $COMPONENT"
+    aptly publish snapshot -component="$COMPONENT" -distribution="$REPO_DISTRIBUTION" -architectures="$REPO_ARCH" -gpg-key="$GPG_KEY_ID" "$SNAP_NAME"
+  fi
+}
+
+# Function to generate a JSON summary of packages for a component
+generate_packages_json() {
+  local COMPONENT="$1"
+  local REPO_ID="${REPO_NAME}_${COMPONENT}"
+  local PACKAGES_FILE="/var/lib/aptly/${REPO_ID}_packages.json"
+
+  aptly repo show -json -with-packages "$REPO_ID" | jq '
+    .Packages
+    | map(split("_") | {name: .[0], version: .[1], arch: .[2]})
+    | group_by(.name)
+    | map({
+        name: .[0].name,
+        version: (map(.version) | unique | sort),
+        arch: (map(.arch) | unique)
+      })
+    | map(. + {latest_version: (.version | last)})
+  ' > "$PACKAGES_FILE"
+
+  echo "$PACKAGES_FILE"
+}
+
+# Function to send webhook notification with the packages JSON
+notify_webhook() {
+  local COMPONENT="$1"
+  local PACKAGES_FILE="$2"
+
+  if [[ -n "$NOTIFY_WEBHOOK_URL" ]]; then
+    echo "📤 Sending packages.json to $NOTIFY_WEBHOOK_URL..."
+    curl -s -X POST -H "Content-Type: application/json" \
+      -H "x-repo-name: ${REPO_NAME}" \
+      -H "x-repo-component: ${COMPONENT}" \
+      --data "@$PACKAGES_FILE" \
+      "$NOTIFY_WEBHOOK_URL?repo_name=$REPO_NAME&repo_component=$COMPONENT"
+    echo "✅ Webhook sent"
+  fi
+}
+
+# Function to send email notification about the update
+send_email_notification() {
+  local COMPONENT="$1"
+  local PACKAGES_FILE="$2"
+
+  if [[ "$NOTIFY_SENDMAIL" != "true" ]]; then
+    return
+  fi
+
+  local MUTT_CONF="$(mktemp)"
+  echo "📧 Sending mail to $MAIL_TO"
+  echo "APT repository '$REPO_NAME', component '${COMPONENT}', has been updated on $(date +"%Y-%m-%d %H:%M:%S")" > /tmp/email.txt
+
+  cat > "$MUTT_CONF" <<EOF
+set from="$MAIL_FROM"
+set realname="${MAIL_FROM:-Aptly Repo}"
+set smtp_url="smtp://$SMTP_USER@$SMTP_HOST:$SMTP_PORT/"
+set smtp_pass="$SMTP_PASS"
+set ssl_starttls=${SMTP_STARTTLS:-no}
+EOF
+
+  local SUBJECT="${MAIL_SUBJECT:-APT Repo Update}"
+  if [[ "$MAIL_ATTACHMENT" == "true" ]]; then
+    mutt -F "$MUTT_CONF" -s "$SUBJECT" -a "$PACKAGES_FILE" -- "$MAIL_TO" < /tmp/email.txt
+  else
+    mutt -F "$MUTT_CONF" -s "$SUBJECT" -- "$MAIL_TO" < /tmp/email.txt
+  fi
+
+  rm -f /tmp/email.txt "$MUTT_CONF"
+}
+
+# Function to cleanup old snapshots and database
+cleanup_snapshots() {
+  local COMPONENT="$1"
+  local REPO_ID="${REPO_NAME}_${COMPONENT}"
+  local SNAPSHOTS=$(aptly snapshot list -raw | grep "^$REPO_ID" | sort -r)
+  local SNAP_COUNT=$(echo "$SNAPSHOTS" | wc -l)
+
+  if (( SNAP_COUNT > REPO_MAX_SNAPSHOTS )); then
+    echo "🗑️ Cleaning up old snapshots..."
+    echo "$SNAPSHOTS" | tail -n +$((REPO_MAX_SNAPSHOTS + 1)) | while read -r SNAP; do
+      echo "🗑️ Deleting snapshot: $SNAP"
+      aptly snapshot drop "$SNAP"
+    done
+  fi
+
+  echo "🗑️ Cleaning up aptly database..."
+  aptly db cleanup
+
+  echo "🗑️ Cleaning up empty directories..."
+  find /var/lib/aptly/public -type d -empty -delete
+}
+
+# Main start function
 start() {
   # -- Config Aptly
   if [[ ! -f "$CONFIG_PATH" ]]; then
@@ -66,7 +196,7 @@ EOF
   GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ { print $10; exit }')
   echo "$GPG_KEY_ID:6:" | gpg --import-ownertrust
   echo "🔑 Using GPG key ID: $GPG_KEY_ID"
-  echo "🧩 Loaded components: ${COMPONENTS[*]}"
+  echo "🧩 Loading components: ${COMPONENTS[*]}"
 
   if [[ ! -f "$GPG_KEY_PATH" ]]; then
     echo "💾 Exporting generated private key to $GPG_KEY_PATH"
@@ -76,41 +206,23 @@ EOF
 
   # -- /incoming dirs
   for COMPONENT in "${COMPONENTS[@]}"; do
+    REPO_ID="${REPO_NAME}_${COMPONENT}"
     mkdir -p "/incoming/$COMPONENT"
-  done
 
-  # -- Create repo if needed
-  if ! aptly repo list -raw | grep -q "^$REPO_NAME$"; then
-    FIRST_COMPONENT=$(echo "$REPO_COMPONENTS" | cut -d',' -f1)
-    echo "📦 Creating repo $REPO_NAME with component $FIRST_COMPONENT"
-    aptly repo create -distribution="$REPO_DISTRIBUTION" -component="$FIRST_COMPONENT" "$REPO_NAME"
-  fi
+    if ! aptly repo list -raw | grep -q "^$REPO_ID$"; then
+      echo "📦 Creating repo $REPO_ID"
+      aptly repo create -distribution="$REPO_DISTRIBUTION" -component="$COMPONENT" "$REPO_ID"
+    fi
 
-  # -- Initial publish if not yet done (via snapshots for switch compatibility)
-  if ! aptly publish list | grep -q "$REPO_DISTRIBUTION"; then
-    echo "📸 Creating initial empty snapshots for each component..."
-
-    COMPONENT_LIST=()
-    SNAPSHOT_LIST=()
-
-    for COMPONENT in "${COMPONENTS[@]}"; do
+    # -- Initial publish if not yet done (via snapshots for switch compatibility)
+    if ! aptly publish list | grep -q "$REPO_DISTRIBUTION.*$COMPONENT"; then
       SNAP_NAME="${COMPONENT}_initial"
-      echo "📸 Creating snapshot $SNAP_NAME"
-      aptly snapshot create "$SNAP_NAME" from repo "$REPO_NAME"
-      COMPONENT_LIST+=("$COMPONENT")
-      SNAPSHOT_LIST+=("$SNAP_NAME")
-    done
-
-    COMPONENTS_JOINED=$(IFS=, ; echo "${COMPONENT_LIST[*]}")
-
-    echo "🚀 Publishing initial snapshots with components: $COMPONENTS_JOINED"
-    aptly publish snapshot \
-      -component="$COMPONENTS_JOINED" \
-      -distribution="$REPO_DISTRIBUTION" \
-      -architectures="$REPO_ARCH" \
-      -gpg-key="$GPG_KEY_ID" \
-      "${SNAPSHOT_LIST[@]}"
-  fi
+      echo "📸 Creating initial snapshot $SNAP_NAME for $COMPONENT"
+      aptly snapshot create "$SNAP_NAME" from repo "$REPO_ID"
+      echo "🚀 Publishing $COMPONENT"
+      aptly publish snapshot -component="$COMPONENT" -distribution="$REPO_DISTRIBUTION" -architectures="$REPO_ARCH" -gpg-key="$GPG_KEY_ID" "$SNAP_NAME"
+    fi
+  done
 
   # -- Cron
   if [[ -n "${CRON_UPDATE_COMPONENTS:-}" ]]; then
@@ -165,6 +277,7 @@ EOF
   exec nginx -g "daemon off;"
 }
 
+# Main update function
 update() {
   TARGET_COMPONENTS=("${COMPONENTS[@]}")
 
@@ -200,61 +313,23 @@ update() {
   echo "🔄 Starting update for: ${TARGET_COMPONENTS[*]}"
 
   for COMPONENT in "${TARGET_COMPONENTS[@]}"; do
-    INCOMING_DIR="/incoming/$COMPONENT"
-    if ! find "$INCOMING_DIR" -type f -name '*.deb' | grep -q .; then
-      echo "ℹ️ No .deb found in $INCOMING_DIR, skipping $COMPONENT"
+    if ! add_packages_to_repo "$COMPONENT"; then
       continue
     fi
 
-    echo "📦 Processing component: $COMPONENT"
-    find "$INCOMING_DIR" -name '*.deb' -type f | while read -r pkg; do
-      echo "➕ Adding $pkg to repo"
-      aptly repo add "$REPO_NAME" "$pkg"
-      rm -f "$pkg"
-    done
+    create_and_publish_snapshot "$COMPONENT" "$NOW"
+    PACKAGES_FILE=$(generate_packages_json "$COMPONENT")
 
-    SNAP_NAME="${COMPONENT}_${NOW}"
-    echo "📸 Creating snapshot: $SNAP_NAME"
-    aptly snapshot create "$SNAP_NAME" from repo "$REPO_NAME"
-
-    if aptly publish list | grep -q "$REPO_DISTRIBUTION"; then
-      echo "🔁 Switching publish for $COMPONENT"
-      aptly publish switch -component="$COMPONENT" -gpg-key="$GPG_KEY_ID" "$REPO_DISTRIBUTION" "$SNAP_NAME"
-    else
-      echo "🚀 Publishing $COMPONENT"
-      aptly publish snapshot -component="$COMPONENT" -distribution="$REPO_DISTRIBUTION" -architectures="$REPO_ARCH" -gpg-key="$GPG_KEY_ID" "$SNAP_NAME"
-    fi
+    notify_webhook "$COMPONENT" "$PACKAGES_FILE"
+    send_email_notification "$COMPONENT" "$PACKAGES_FILE"
+    cleanup_snapshots "$COMPONENT"
   done
-
-  echo "[" > "$PACKAGES_FILE.tmp"
-  aptly repo show -with-packages "$REPO_NAME" | grep -v '^\[' | grep -v '^\]' | while read -r line; do
-    PKG=$(echo "$line" | awk -F_ '{print $1}')
-    VER=$(echo "$line" | awk -F_ '{print $2}')
-    COMPONENT=$(echo "$line" | grep -oE "(${REPO_COMPONENTS//,/|})")
-    echo "{\"name\":\"$PKG\",\"version\":\"$VER\",\"component\":\"$COMPONENT\"}," >> "$PACKAGES_FILE.tmp"
-  done
-  sed -i '$ s/,$//' "$PACKAGES_FILE.tmp"
-  echo "]" >> "$PACKAGES_FILE.tmp"
-  mv "$PACKAGES_FILE.tmp" "$PACKAGES_FILE"
-  echo "✅ packages.json generated"
-
-  if [[ -n "$NOTIFY_WEBHOOK_URL" ]]; then
-    echo "📤 Sending packages.json to $NOTIFY_WEBHOOK_URL..."
-    curl -s -X POST -H "Content-Type: application/json" --data "@$PACKAGES_FILE" "$NOTIFY_WEBHOOK_URL"
-    echo "✅ Webhook sent"
-  fi
-
-  if [[ "$NOTIFY_SENDMAIL" == "true" ]]; then
-    echo "📧 Sending mail to $MAIL_TO"
-    echo "APT Repo '$REPO_NAME' updated on $(date)" > /tmp/email.txt
-    SUBJECT="${MAIL_SUBJECT:-APT Repo Update}"
-    # ... msmtp logic as before ...
-  fi
 
   echo "✅ Update complete."
+  exit 0
 }
 
-# --- Entrypoint dispatcher
+# Entrypoint command dispatcher
 case "$1" in
   update)
     update "$@"
