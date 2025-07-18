@@ -37,6 +37,12 @@ COPY nginx.conf /templates/nginx.conf
 # Add update wrapper script into PATH
 RUN echo '#!/bin/bash\nexec /docker-entrypoint.sh update "$@"' > /usr/local/bin/update && chmod +x /usr/local/bin/update
 
+# Add remove wrapper script into PATH
+RUN echo '#!/bin/bash\nexec /docker-entrypoint.sh remove "$@"' > /usr/local/bin/remove && chmod +x /usr/local/bin/remove
+
+# Add help wrapper script into PATH
+RUN echo '#!/bin/bash\nexec /docker-entrypoint.sh help "$@"' > /usr/local/bin/help && chmod +x /usr/local/bin/help
+
 # Volumes : data, GPG key, config
 VOLUME ["/var/lib/aptly", "/secrets", "/config", "/incoming"]
 

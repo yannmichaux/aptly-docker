@@ -293,8 +293,16 @@ EOF
 # Main update function
 update() {
   TARGET_COMPONENTS=("${COMPONENTS[@]}")
+  FORCE_UPDATE="false"
 
-  if [[ -n "$2" ]]; then
+  # Check for force update flag
+  for arg in "$@"; do
+    if [[ "$arg" == "--force" ]]; then
+      FORCE_UPDATE="true"
+    fi
+  done
+
+  if [[ -n "$2" && "$2" != "--force" ]]; then
     IFS=',' read -ra REQUESTED <<< "$2"
     TARGET_COMPONENTS=()
     for REQ in "${REQUESTED[@]}"; do
@@ -326,8 +334,13 @@ update() {
   echo "🔄 Starting update for: ${TARGET_COMPONENTS[*]}"
 
   for COMPONENT in "${TARGET_COMPONENTS[@]}"; do
-    if ! add_packages_to_repo "$COMPONENT"; then
-      continue
+    if [[ "$FORCE_UPDATE" == "false" ]]; then
+      if ! add_packages_to_repo "$COMPONENT"; then
+        echo "ℹ️ No new packages found for $COMPONENT, skipping update."
+        continue
+      fi
+    else
+      echo "⚠️ Force update enabled, skipping package check for $COMPONENT."
     fi
 
     create_and_publish_snapshot "$COMPONENT" "$NOW"
@@ -342,18 +355,79 @@ update() {
   exit 0
 }
 
+# Function to remove a specific package from a component repo using aptly query
+remove() {
+  local COMPONENT="$2"
+  local QUERY="$3"
+  local UPDATE_FLAG="$4"
+
+  if [[ -z "$COMPONENT" || -z "$QUERY" ]]; then
+    echo "❌ Usage: $0 remove <component> <package-query> [--update]"
+    echo "Example: $0 remove stable package-name_1.0.0_all --update"
+    exit 1
+  fi
+
+  local REPO_ID="${REPO_NAME}-${COMPONENT}"
+
+  if ! aptly repo list -raw | grep -q "^$REPO_ID$"; then
+    echo "❌ Repository $REPO_ID does not exist."
+    exit 1
+  fi
+
+  # Check if the package exists in the repo before removing
+  if ! aptly repo search "$REPO_ID" "$QUERY" | grep -q .; then
+    echo "❌ Package '$QUERY' not found in $REPO_ID."
+    exit 1
+  fi
+
+  echo "🗑️ Removing package '$QUERY' from $REPO_ID..."
+  aptly repo remove "$REPO_ID" "$QUERY"
+  echo "✅ Package '$QUERY' removed from $REPO_ID."
+
+  # If --update flag is provided, trigger a new snapshot and publish
+  if [[ "$UPDATE_FLAG" == "--update" ]]; then
+    NOW=$(date +"%Y%m%d-%H%M%S")
+    create_and_publish_snapshot "$COMPONENT" "$NOW"
+    PACKAGES_FILE=$(generate_packages_json "$COMPONENT")
+    notify_webhook "$COMPONENT" "$PACKAGES_FILE"
+    send_email_notification "$COMPONENT" "$PACKAGES_FILE"
+    cleanup_snapshots "$COMPONENT"
+    echo "✅ Snapshot and publish updated for $COMPONENT."
+  fi
+
+  exit 0
+}
+
 # Entrypoint command dispatcher
 case "$1" in
   update)
     update "$@"
     ;;
+  remove)
+    remove "$@"
+    ;;
   ""|start)
     start
     ;;
+  help|-h|--help)
+    echo "🆘 Aptly Docker Entrypoint Help"
+    echo ""
+    echo "Usage: $0 <command> [options]"
+    echo ""
+    echo "Available commands:"
+    echo "  start                Start the repository and NGINX (default)"
+    echo "  update [components]  Update repository with new packages for specified components (comma-separated, optional)"
+    echo "                      Options: --force (force update even if no new packages)"
+    echo "  remove <component> <package-query> [--update]"
+    echo "                      Remove a package from a component and optionally update/publish"
+    echo "  help                 Show this help message"
+    echo ""
+    echo "ℹ️ Available components: $REPO_COMPONENTS"
+    exit 0
+    ;;
   *)
     echo "❓ Unknown command: $1"
-    echo "Usage: $0 [start|update [component1,component2,...]]"
-    echo "ℹ️ Available components: $REPO_COMPONENTS"
+    echo "Run '$0 help' for usage."
     exit 1
     ;;
 esac
