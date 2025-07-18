@@ -132,6 +132,8 @@ EOF
 
   # Ignore SSL certs if SMTP_IGNORE_CERTS is set
   if [[ "$SMTP_IGNORE_CERTS" == "true" ]]; then
+    echo "set ssl_starttls=no" >> "$MUTT_CONF"
+    echo "set ssl_force_tls=no" >> "$MUTT_CONF"
     echo "set ssl_verify_host=no" >> "$MUTT_CONF"
     echo "set ssl_verify_dates=no" >> "$MUTT_CONF"
   fi
