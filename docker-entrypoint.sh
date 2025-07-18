@@ -75,15 +75,38 @@ notify_webhook() {
   local COMPONENT="$1"
   local PACKAGES_FILE="$2"
 
-  if [[ -n "$NOTIFY_WEBHOOK_URL" ]]; then
-    echo "📤 Sending packages.json to $NOTIFY_WEBHOOK_URL..."
-    curl -s -X POST -H "Content-Type: application/json" \
-      -H "x-repo-name: ${REPO_NAME}" \
-      -H "x-repo-component: ${COMPONENT}" \
-      --data "@$PACKAGES_FILE" \
-      "$NOTIFY_WEBHOOK_URL?repo_name=$REPO_NAME&repo_component=$COMPONENT"
-    echo "✅ Webhook sent"
+  if [[ -z "$NOTIFY_WEBHOOK_URL" ]]; then
+    return
   fi
+
+  local METHOD="${NOTIFY_WEBHOOK_METHOD:-POST}"
+  local AUTH=""
+  local HEADERS=(
+    -H "Content-Type: application/json"
+    -H "x-repo-name: ${REPO_NAME}"
+    -H "x-repo-component: ${COMPONENT}"
+  )
+
+  # Basic authentication if user and pass are provided
+  if [[ -n "$NOTIFY_WEBHOOK_USER" && -n "$NOTIFY_WEBHOOK_PASS" ]]; then
+    AUTH="-u ${NOTIFY_WEBHOOK_USER}:${NOTIFY_WEBHOOK_PASS}"
+  fi
+
+  # Loop through environment variables of type NOTIFY_WEBHOOK_HEADER_*
+  while IFS='=' read -r name value; do
+    if [[ "$name" =~ ^NOTIFY_WEBHOOK_HEADER_(.*)$ ]]; then
+      header_name="${BASH_REMATCH[1]//_/-}"  # replace _ with -
+      HEADERS+=(-H "$header_name: $value")
+    fi
+  done < <(env)
+
+  echo "📤 Sending packages.json to $NOTIFY_WEBHOOK_URL via $METHOD..."
+
+  curl -s -X "$METHOD" "${HEADERS[@]}" $AUTH \
+    --data "@$PACKAGES_FILE" \
+    "$NOTIFY_WEBHOOK_URL?repo_name=$REPO_NAME&repo_component=$COMPONENT"
+
+  echo "✅ Webhook sent"
 }
 
 # Function to send email notification about the update
