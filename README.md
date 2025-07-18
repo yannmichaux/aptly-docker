@@ -150,6 +150,34 @@ Uses `mutt` with SMTP authentication.
 
 ---
 
+## 📡 Webhook Notifications
+
+To enable a webhook notification after each repository update:
+
+```yml
+NOTIFY_WEBHOOK_URL: http://your-backend.local/api/packagerepository/sync
+NOTIFY_WEBHOOK_METHOD: POST # Optional (default: POST)
+NOTIFY_WEBHOOK_USER: myuser # Optional (for HTTP Basic Auth)
+NOTIFY_WEBHOOK_PASS: mypass # Optional (for HTTP Basic Auth)
+NOTIFY_WEBHOOK_HEADER_X_API_KEY: abc123 # Optional (adds header: X-API-KEY: abc123)
+NOTIFY_WEBHOOK_HEADER_X_CUSTOM_FLAG: true # Optional (adds any custom header)
+```
+
+The webhook request sends a `packages.json` file as raw body with `Content-Type: application/json`, and includes the following headers by default:
+
+- `X-Repo-Name: <REPO_NAME>`
+- `X-Repo-Component: <component>`
+
+The URL will be automatically suffixed with query parameters:
+
+```
+?repo_name=<REPO_NAME>&repo_component=<component>
+```
+
+This allows any backend to be notified and synchronize packages when changes are published.
+
+---
+
 ## 🔏 GPG Signing
 
 - If `/secrets/private.asc` is present, it will be imported.
