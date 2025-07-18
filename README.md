@@ -68,6 +68,7 @@ services:
       MAIL_TO: you@domain.com
       MAIL_SUBJECT: "APT Repo Updated"
       MAIL_ATTACHMENT: true
+      SMTP_IGNORE_CERTS: true # Ignore self signed certificates / certificates error
     volumes:
       - aptly-data:/var/lib/aptly
       - /path/to/config:/config
@@ -130,17 +131,18 @@ docker exec aptly-server update stable,testing
 
 To enable email after each update:
 
-```env
-NOTIFY_SENDMAIL=true
-SMTP_HOST=smtp.domain.com
-SMTP_PORT=587
-SMTP_USER=username
-SMTP_PASS=password
-SMTP_STARTTLS=no
-MAIL_FROM=aptly@domain.com
-MAIL_TO=you@domain.com
-MAIL_SUBJECT="APT Repo Updated"
-MAIL_ATTACHMENT=true
+```yml
+NOTIFY_SENDMAIL: true
+SMTP_HOST: smtp.domain.com
+SMTP_PORT: 587
+SMTP_USER: username
+SMTP_PASS: password
+SMTP_STARTTLS: no
+MAIL_FROM: aptly@domain.com
+MAIL_TO: you@domain.com
+MAIL_SUBJECT: "APT Repo Updated"
+MAIL_ATTACHMENT: true
+SMTP_IGNORE_CERTS: true # Ignore self signed certificates / certificates error
 ```
 
 Uses `mutt` with SMTP authentication.
@@ -185,7 +187,8 @@ docker run --rm -it yannmichaux/aptly /bin/bash
 Trigger manual update inside the container:
 
 ```bash
-/docker-entrypoint.sh update
+/docker-entrypoint.sh update # Update all components
+/docker-entrypoint.sh update <component> # Update specific component
 ```
 
 ---

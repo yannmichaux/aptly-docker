@@ -107,6 +107,13 @@ set smtp_pass="$SMTP_PASS"
 set ssl_starttls=${SMTP_STARTTLS:-no}
 EOF
 
+  # Ignore SSL certs if SMTP_IGNORE_CERTS is set
+  if [[ "$SMTP_IGNORE_CERTS" == "true" ]]; then
+    echo "set ssl_verify_host=no" >> "$MUTT_CONF"
+    echo "set ssl_verify_dates=no" >> "$MUTT_CONF"
+  fi
+
+
   local SUBJECT="${MAIL_SUBJECT:-APT Repo Update}"
   if [[ "$MAIL_ATTACHMENT" == "true" ]]; then
     mutt -F "$MUTT_CONF" -s "$SUBJECT" -a "$PACKAGES_FILE" -- "$MAIL_TO" < /tmp/email.txt
