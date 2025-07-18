@@ -13,6 +13,7 @@ A fully-featured, production-ready Docker image to serve a private APT repositor
 - 📊 Webhook + email notifications
 - 🔒 Optional Basic Auth for uploads
 - 🧩 Manual update via `docker exec aptly-server update [component]`
+- 🗑️ Easy package removal via `docker exec aptly-server remove [component] [<package-query>]`
 
 ---
 
@@ -184,11 +185,24 @@ Run in interactive mode:
 docker run --rm -it yannmichaux/aptly /bin/bash
 ```
 
-Trigger manual update inside the container:
+Commands available inside the container:
 
 ```bash
 /docker-entrypoint.sh update # Update all components
 /docker-entrypoint.sh update <component> # Update specific component
+/docker-entrypoint.sh update <component> --force # Force Update specific component
+/docker-entrypoint.sh remove <component> [<package-query>]
+/docker-entrpoint.sh help
+```
+
+Same commands are available outside the container
+
+```bash
+docker exec -it container_name update
+docker exec -it container_name update <component>
+docker exec -it container_name update <component> --force
+docker exec -it container_name remove <component>
+docker exec -it container_name help
 ```
 
 ---
