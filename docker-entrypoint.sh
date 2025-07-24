@@ -1,6 +1,22 @@
 #!/bin/bash
 set -e
 
+# Utility function to print messages
+log() {
+  local LEVEL="$1"
+  shift
+  local MESSAGE="$@"
+  local COLOR=""
+  case "$LEVEL" in
+    INFO) COLOR="\033[0;36m" ;;   # Cyan
+    WARN) COLOR="\033[0;33m" ;;   # Yellow
+    ERROR) COLOR="\033[0;31m" ;;  # Red
+    *) COLOR="" ;;
+  esac
+  local RESET="\033[0m"
+  echo -e "$(date +"%Y-%m-%d %H:%M:%S") [${COLOR}${LEVEL}${RESET}] $MESSAGE"
+}
+
 # Define default values for environment variables
 REPO_ARCH="${REPO_ARCH:-amd64}"
 REPO_NAME="${REPO_NAME:-default}"
@@ -22,13 +38,13 @@ add_packages_to_repo() {
   local INCOMING_DIR="/incoming/$COMPONENT"
 
   if ! find "$INCOMING_DIR" -type f -name '*.deb' | grep -q .; then
-    echo "ℹ️ No .deb found in $INCOMING_DIR, skipping $COMPONENT"
+    log "INFO" "ℹ️ No .deb found in $INCOMING_DIR, skipping $COMPONENT"
     return 1
   fi
 
-  echo "📦 Processing component: $COMPONENT"
+  log "INFO" "📦 Processing component: $COMPONENT"
   find "$INCOMING_DIR" -name '*.deb' -type f | while read -r pkg; do
-    echo "➕ Adding $pkg to repo"
+    log "INFO" "➕ Adding $pkg to repo"
     aptly repo add -remove-files "$REPO_ID" "$pkg"
   done
 }
@@ -40,11 +56,11 @@ create_and_publish_snapshot() {
   local REPO_ID="${REPO_NAME}-${COMPONENT}"
   local SNAP_NAME="${REPO_ID}_${NOW}"
 
-  echo "📸 Creating snapshot: $SNAP_NAME"
+  log "INFO" "📸 Creating snapshot: $SNAP_NAME"
   aptly snapshot create "$SNAP_NAME" from repo "$REPO_ID"
 
   if aptly publish list | grep -q "$REPO_DISTRIBUTION.*$COMPONENT"; then
-    echo "🔁 Switching publish for $COMPONENT"
+    log "INFO" "🔁 Switching publish for $COMPONENT"
     aptly publish switch -component="$COMPONENT" -gpg-key="$GPG_KEY_ID" "$REPO_DISTRIBUTION" "$SNAP_NAME"
   fi
 }
@@ -100,13 +116,13 @@ notify_webhook() {
     fi
   done < <(env)
 
-  echo "📤 Sending packages.json to $NOTIFY_WEBHOOK_URL via $METHOD..."
+  log "INFO" "📤 Sending packages.json to $NOTIFY_WEBHOOK_URL via $METHOD..."
 
   curl -s -X "$METHOD" "${HEADERS[@]}" $AUTH \
     --data "@$PACKAGES_FILE" \
     "$NOTIFY_WEBHOOK_URL?repo_name=$REPO_NAME&repo_component=$COMPONENT"
 
-  echo "✅ Webhook sent"
+  log "INFO" "✅ Webhook sent"
 }
 
 # Function to send email notification about the update
@@ -119,7 +135,7 @@ send_email_notification() {
   fi
 
   local MUTT_CONF="$(mktemp)"
-  echo "📧 Sending mail to $MAIL_TO"
+  log "INFO" "📧 Sending mail to $MAIL_TO"
   echo "APT repository '$REPO_NAME', component '${COMPONENT}', has been updated on $(date +"%Y-%m-%d %H:%M:%S")" > /tmp/email.txt
 
   cat > "$MUTT_CONF" <<EOF
@@ -157,17 +173,17 @@ cleanup_snapshots() {
   local SNAP_COUNT=$(echo "$SNAPSHOTS" | wc -l)
 
   if (( SNAP_COUNT > REPO_MAX_SNAPSHOTS )); then
-    echo "🗑️ Cleaning up old snapshots..."
+    log "INFO" "🗑️ Cleaning up old snapshots..."
     echo "$SNAPSHOTS" | tail -n +$((REPO_MAX_SNAPSHOTS + 1)) | while read -r SNAP; do
-      echo "🗑️ Deleting snapshot: $SNAP"
+      log "INFO" "🗑️ Deleting snapshot: $SNAP"
       aptly snapshot drop "$SNAP"
     done
   fi
 
-  echo "🗑️ Cleaning up aptly database..."
+  log "INFO" "🗑️ Cleaning up aptly database..."
   aptly db cleanup
 
-  echo "🗑️ Cleaning up empty directories..."
+  log "INFO" "🗑️ Cleaning up empty directories..."
   find /var/lib/aptly/public -type d -empty -delete
 }
 
@@ -175,7 +191,7 @@ cleanup_snapshots() {
 start() {
   # -- Config Aptly
   if [[ ! -f "$CONFIG_PATH" ]]; then
-    echo "⚠️ No aptly.conf found in /config, generating default..."
+    log "WARN" "⚠️ No aptly.conf found in /config, generating default..."
     mkdir -p /config
     cat > "$CONFIG_PATH" <<EOF
 {
@@ -197,16 +213,16 @@ EOF
   fi
 
   ln -sf "$CONFIG_PATH" /etc/aptly.conf
-  echo "🔧 Using aptly.conf from $CONFIG_PATH"
+  log "INFO" "🔧 Using aptly.conf from $CONFIG_PATH"
 
   # -- GPG
   if [[ -f "$GPG_KEY_PATH" ]]; then
-    echo "🔐 Importing GPG key from $GPG_KEY_PATH..."
+    log "INFO" "🔐 Importing GPG key from $GPG_KEY_PATH..."
     gpg --batch --import "$GPG_KEY_PATH" &>/dev/null || true
   else
-    echo "⚠️ No GPG key provided — checking for existing key..."
+    log "WARN" "⚠️ No GPG key provided — checking for existing key..."
     if ! gpg --list-secret-keys | grep -q sec; then
-      echo "🔐 No existing GPG key — generating a new one..."
+      log "INFO" "🔐 No existing GPG key — generating a new one..."
       cat > /tmp/gen-key <<EOF
 Key-Type: eddsa
 Key-Curve: ed25519
@@ -224,11 +240,11 @@ EOF
 
   GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ { print $10; exit }')
   echo "$GPG_KEY_ID:6:" | gpg --import-ownertrust
-  echo "🔑 Using GPG key ID: $GPG_KEY_ID"
-  echo "🧩 Loading components: ${COMPONENTS[*]}"
+  log "INFO" "🔑 Using GPG key ID: $GPG_KEY_ID"
+  log "INFO" "🧩 Loading components: ${COMPONENTS[*]}"
 
   if [[ ! -f "$GPG_KEY_PATH" ]]; then
-    echo "💾 Exporting generated private key to $GPG_KEY_PATH"
+    log "INFO" "💾 Exporting generated private key to $GPG_KEY_PATH"
     mkdir -p "$(dirname "$GPG_KEY_PATH")"
     gpg --batch --yes --armor --export-secret-keys "$GPG_KEY_ID" > "$GPG_KEY_PATH"
   fi
@@ -241,9 +257,9 @@ EOF
     mkdir -p "/incoming/$COMPONENT"
 
     if ! aptly repo list -raw | grep -q "^$REPO_ID$"; then
-      echo "📦 Creating repo $REPO_ID"
+      log "INFO" "📦 Creating repo $REPO_ID"
       aptly repo create -distribution="$REPO_DISTRIBUTION" -component="$COMPONENT" "$REPO_ID" &>/dev/null
-      echo "📸 Creating initial snapshot $SNAP_NAME for $COMPONENT"
+      log "INFO" "📸 Creating initial snapshot $SNAP_NAME for $COMPONENT"
       aptly snapshot create "$SNAP_NAME" from repo "$REPO_ID" &>/dev/null
     fi
   done
@@ -253,7 +269,7 @@ EOF
     SNAPSHOTS=$(aptly snapshot list -raw | grep "_initial$" | sort -r)
     COMPONENTS=$(echo "${COMPONENTS[@]}" | tr ' ' ',')
 
-    echo "🚀 Publishing initial snapshosts"
+    log "INFO" "🚀 Publishing initial snapshosts"
     aptly publish snapshot \
       -component="$COMPONENTS" \
       -distribution="$REPO_DISTRIBUTION" \
@@ -262,13 +278,6 @@ EOF
       $SNAPSHOTS  &>/dev/null
   fi
 
-  # -- Cron
-  if [[ -n "${CRON_UPDATE_COMPONENTS:-}" ]]; then
-    echo "$CRON_UPDATE_COMPONENTS root /docker-entrypoint.sh update >> /proc/1/fd/1 2>&1" > /etc/cron.d/aptly-update
-    chmod 0644 /etc/cron.d/aptly-update
-    crontab /etc/cron.d/aptly-update
-    cron
-  fi
 
   # -- NGINX dynamic config
   TEMPLATE_FILE="/templates/nginx.conf"
@@ -276,7 +285,7 @@ EOF
   NGINX_LINK="/etc/nginx/conf.d/default.conf"
 
   if [[ ! -f "$CONFIG_FILE" ]]; then
-    echo "⚠️ Missing nginx.conf in /config, generating from template..."
+    log "WARN" "⚠️ Missing nginx.conf in /config, generating from template..."
     mkdir -p /config
 
     COMPONENTS_REGEX=$(echo "$REPO_COMPONENTS" | sed 's/,/|/g')
@@ -294,7 +303,7 @@ EOF
 
   # -- Symlink config to NGINX expected path
   ln -sf "$CONFIG_FILE" "$NGINX_LINK"
-  echo "🌐 Linked nginx.conf to $NGINX_LINK"
+  log "INFO" "🌐 Linked nginx.conf to $NGINX_LINK"
 
   mkdir -p /config/examples
   gpg --batch --yes --output /var/lib/aptly/public.gpg --armor --export "$GPG_KEY_ID"
@@ -311,7 +320,7 @@ Signed-By: /usr/share/keyrings/${REPO_NAME}-archive-keyring.gpg
 EOF
   fi
 
-  echo "✅ Ready. Starting NGINX..."
+  log "INFO" "✅ Ready. Starting NGINX..."
   exec nginx -g "daemon off;"
 }
 
@@ -340,15 +349,15 @@ update() {
         fi
       done
       if [[ "$FOUND" == false ]]; then
-        echo "❌ Component '$REQ' not found in REPO_COMPONENTS: $REPO_COMPONENTS"
-        echo "ℹ️ Available components: $REPO_COMPONENTS"
+        log "ERROR" "❌ Component '$REQ' not found in REPO_COMPONENTS: $REPO_COMPONENTS"
+        log "INFO" "ℹ️ Available components: $REPO_COMPONENTS"
         exit 1
       fi
     done
   fi
 
   if [[ -f "$LOCKFILE" ]]; then
-    echo "⛔️ Update already running. Exiting."
+    log "WARN" "⛔️ Update already running. Exiting."
     exit 0
   fi
 
@@ -356,16 +365,16 @@ update() {
   trap 'rm -f "$LOCKFILE"' EXIT
 
   NOW=$(date +"%Y%m%d-%H%M%S")
-  echo "🔄 Starting update for: ${TARGET_COMPONENTS[*]}"
+  log "INFO" "🔄 Starting update for: ${TARGET_COMPONENTS[*]}"
 
   for COMPONENT in "${TARGET_COMPONENTS[@]}"; do
     if [[ "$FORCE_UPDATE" == "false" ]]; then
       if ! add_packages_to_repo "$COMPONENT"; then
-        echo "ℹ️ No new packages found for $COMPONENT, skipping update."
+        log "INFO" "ℹ️ No new packages found for $COMPONENT, skipping update."
         continue
       fi
     else
-      echo "⚠️ Force update enabled, skipping package check for $COMPONENT."
+      log "WARN" "⚠️ Force update enabled, skipping package check for $COMPONENT."
     fi
 
     create_and_publish_snapshot "$COMPONENT" "$NOW"
@@ -376,7 +385,7 @@ update() {
     cleanup_snapshots "$COMPONENT"
   done
 
-  echo "✅ Update complete."
+  log "INFO" "✅ Update complete."
   exit 0
 }
 
@@ -387,27 +396,27 @@ remove() {
   local UPDATE_FLAG="$4"
 
   if [[ -z "$COMPONENT" || -z "$QUERY" ]]; then
-    echo "❌ Usage: $0 remove <component> <package-query> [--update]"
-    echo "Example: $0 remove stable package-name_1.0.0_all --update"
+    log "ERROR" "❌ Usage: $0 remove <component> <package-query> [--update]"
+    log "INFO" "Example: $0 remove stable package-name_1.0.0_all --update"
     exit 1
   fi
 
   local REPO_ID="${REPO_NAME}-${COMPONENT}"
 
   if ! aptly repo list -raw | grep -q "^$REPO_ID$"; then
-    echo "❌ Repository $REPO_ID does not exist."
+    log "ERROR" "❌ Repository $REPO_ID does not exist."
     exit 1
   fi
 
   # Check if the package exists in the repo before removing
   if ! aptly repo search "$REPO_ID" "$QUERY" | grep -q .; then
-    echo "❌ Package '$QUERY' not found in $REPO_ID."
+    log "ERROR" "❌ Package '$QUERY' not found in $REPO_ID."
     exit 1
   fi
 
-  echo "🗑️ Removing package '$QUERY' from $REPO_ID..."
+  log "INFO" "🗑️ Removing package '$QUERY' from $REPO_ID..."
   aptly repo remove "$REPO_ID" "$QUERY"
-  echo "✅ Package '$QUERY' removed from $REPO_ID."
+  log "INFO" "✅ Package '$QUERY' removed from $REPO_ID."
 
   # If --update flag is provided, trigger a new snapshot and publish
   if [[ "$UPDATE_FLAG" == "--update" ]]; then
@@ -417,7 +426,7 @@ remove() {
     notify_webhook "$COMPONENT" "$PACKAGES_FILE"
     send_email_notification "$COMPONENT" "$PACKAGES_FILE"
     cleanup_snapshots "$COMPONENT"
-    echo "✅ Snapshot and publish updated for $COMPONENT."
+    log "INFO" "✅ Snapshot and publish updated for $COMPONENT."
   fi
 
   exit 0
@@ -440,12 +449,17 @@ case "$1" in
     echo "Usage: $0 <command> [options]"
     echo ""
     echo "Available commands:"
-    echo "  start                Start the repository and NGINX (default)"
-    echo "  update [components]  Update repository with new packages for specified components (comma-separated, optional)"
-    echo "                      Options: --force (force update even if no new packages)"
+    echo ""
+    echo "  start                       Start the repository and NGINX (default)"
+    echo ""
+    echo "  update [components]         Update repository with new packages for specified components (comma-separated, optional)"
+    echo "    Options:"
+    echo "      --force                 Force update even if no new packages"
+    echo ""
     echo "  remove <component> <package-query> [--update]"
-    echo "                      Remove a package from a component and optionally update/publish"
-    echo "  help                 Show this help message"
+    echo "                              Remove a package from a component and optionally update/publish"
+    echo ""
+    echo "  help                        Show this help message"
     echo ""
     echo "ℹ️ Available components: $REPO_COMPONENTS"
     exit 0
