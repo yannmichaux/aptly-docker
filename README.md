@@ -52,9 +52,6 @@ services:
       REPO_DISTRIBUTION: noble
       REPO_ARCH: amd64
 
-      # Optional cron for automatic update
-      CRON_UPDATE_COMPONENTS: "*/15 * * * *"
-
       # Optional webhook
       NOTIFY_WEBHOOK_URL: https://my-webhook-server/notify
 
@@ -97,7 +94,6 @@ curl -X PUT --data-binary "@my-package.deb" http://<host>:8080/incoming/<compone
 
 ## 🔁 Update Mechanism
 
-- Runs automatically via `CRON_UPDATE_COMPONENTS`
 - Consumes `.deb` files from `/incoming/<component>`
 - Creates repo & publishes snapshots per component
 - Prevents concurrent updates via a lock file

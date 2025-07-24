@@ -262,13 +262,6 @@ EOF
       $SNAPSHOTS  &>/dev/null
   fi
 
-  # -- Cron
-  if [[ -n "${CRON_UPDATE_COMPONENTS:-}" ]]; then
-    echo "$CRON_UPDATE_COMPONENTS root /docker-entrypoint.sh update >> /proc/1/fd/1 2>&1" > /etc/cron.d/aptly-update
-    chmod 0644 /etc/cron.d/aptly-update
-    crontab /etc/cron.d/aptly-update
-    cron
-  fi
 
   # -- NGINX dynamic config
   TEMPLATE_FILE="/templates/nginx.conf"
