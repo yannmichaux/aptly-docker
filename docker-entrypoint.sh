@@ -6,7 +6,15 @@ log() {
   local LEVEL="$1"
   shift
   local MESSAGE="$@"
-  echo "$(date +"%Y-%m-%d %H:%M:%S") [$LEVEL] $MESSAGE"
+  local COLOR=""
+  case "$LEVEL" in
+    INFO) COLOR="\033[0;36m" ;;   # Cyan
+    WARN) COLOR="\033[0;33m" ;;   # Yellow
+    ERROR) COLOR="\033[0;31m" ;;  # Red
+    *) COLOR="" ;;
+  esac
+  local RESET="\033[0m"
+  echo -e "$(date +"%Y-%m-%d %H:%M:%S") [${COLOR}${LEVEL}${RESET}] $MESSAGE"
 }
 
 # Define default values for environment variables
